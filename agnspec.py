@@ -7,6 +7,10 @@ import os, sys
 from constants import *
 import numpy as np
 import dispar3_sub as dispar 
+import idlsave
+
+
+s = idlsave.read('agngrid.save')
 
 
 mass = 1e9
