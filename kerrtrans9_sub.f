@@ -1,3 +1,571 @@
+
+       SUBROUTINE KERRTRANS9(NK, WLS, TMPIN)
+c       IMPLICIT NONE
+C This program calculates the polarization and spectrum of an accretion
+C disk in a Kerr spacetime, for arbitrary spin parameter.  
+C
+C----------------------- Variable definitions ---------------------------
+C
+      INTEGER MRE,NRO,NPHI,NK0,MK,NW,NWO,MKO,NDISK
+      PARAMETER (MRE = 50, NRO = 128, NPHI = 128, NK0=0, MK = 23286, 
+     %           NW  = 10, NWO =   1, MKO  = 531, NDISK =1)
+      DOUBLE PRECISION A,AEQ,ALPHA,BETA,DEL,
+     %       EPSINU,GAM,L,L2,ONE,OMEGAG,OMEGA,
+     %       PHI,PI,Q2,RMS,ROUT,UE,VG,Z1,Z2
+      DOUBLE PRECISION AMIN,AMAX,BBB,BMIN,BMAX,C,CCC,DNUE,DNUO,E,ENERGY,
+     &       ENU,ETA,FLUX,GE,GN,INTG,INU(MRE,MK,NW+2),INUR(MK,NW+2),
+     &       ISPEC,
+     &       LEDD,LUM,MASS,MDOT,MP,ME,MSUN,MUE,MUO(NWO),NU(MK),NUR(MK),
+     &       P(MRE,MK,NW+2),PR(MK,NW+2),PSI,
+     &       PSIM,PSIP,QQQ,R1,R2,R(MRE),RCUT,RE(MRE),RE0,RO(NRO),
+     &       RG,MU(NW+2),SIGMAB,SIGMAT,SM,SSQRT,SU,
+     &       T,T1,T2,TEFF(MRE),TMIN,U,V,WRO(NRO),WR(MRE),WT(NWO),
+     &       X,X0,X1,X2,X3,
+     &       MUHUB(NW),MUHUBWT(NW),NMISS(MKO,NWO),WA,WB,JUNK
+      DOUBLE PRECISION A1,A2,B1,B2,DELTA,FCTISP,LSPEC(3,MKO),NUE,
+     &       PANGLE,SFAC(3),TWO,WPHI,THIRD,WK(MKO),TEFF0,TRES,LTOT(3),
+     &       LAM,HNU,NUO(MKO),NUO1,NUO2,ZERO,FOUR,FOURTH,KMAX,
+     &       A1T,A2T,B1T,B2T,HC,HK,SMALL,TEX,WAT,WBT
+      INTEGER GR
+      LOGICAL TPR,TPM
+      CHARACTER*40 RADFILE
+      EXTERNAL PANGLE,FCTISP
+C
+C*************************************************************** 
+C statements for F2Py
+C*************************************************************** 
+      INTEGER NK, WLS
+      REAL*8 
+Cf2py intent(in) NK, WLS, EMRADIN 
+Cf2py tmpin
+C f2py intent(in,out) NRE
+C f2py intent(out) TEFFL_ARRAY, QGRAL_ARRAY, DMTOL_ARRAY, R_OUT_ARRAY
+
+C
+C*************************************************************** 
+C Define HK=h/k=Planck's constant/Boltzmann's constant
+C Define HC=2*H/C^2
+C*************************************************************** 
+      PARAMETER(HK = 4.79916D-11, HC=1.47455D-47)
+      PARAMETER ( ZERO=0.D0, ONE=1.D0, TWO=2.D0, TRES=3.D0, FOUR= 4.D0,
+     &             THIRD = 0.333333333333333D0, FOURTH= 0.25D0,
+     &             C=2.9979D10, MP=1.6726D-24, ME=9.1095D-28, 
+     &             E=4.8032D-10, 
+     &             MSUN=1.989D33, SIGMAB=5.6703D-5, GN=6.672D-8)
+C
+C-  Set up parameters:
+C
+      PI=ACOS(-ONE) 
+      SIGMAT=(8.D0*PI/TRES)*(E*E/ME/C/C)**2
+C----------------------- Initializations -------------------------------
+C
+C First, read in the frequencies to be used at the disk:
+C
+C      READ(5,*) NK
+      IF(NK.GT.0) THEN
+        OPEN(UNIT=10,FILE='freqrad.in',STATUS='old')
+        READ(10,*) (NU(KK),KK=NK,1,-1)
+C     if NK < 0, then use logarithmically spaced points:
+      ELSE
+        NK=ABS(NK)
+        READ(5,*) NUO1,NUO2
+        NUO1=LOG(NUO1)
+        NUO2=LOG(NUO2)
+        DNUO=(NUO2-NUO1)/DBLE(NK)
+        DO I=1,NK
+          NU(I)=EXP(NUO1+DNUO*(DBLE(I)-0.5D0))
+        ENDDO
+      ENDIF
+C
+C-  Read in the frequencies observed and weights:
+C
+      READ(5,*) NKO
+      IF(NKO.GT.0) THEN
+C-      read in the frequencies observed and weights:
+        OPEN(UNIT=12,FILE='freq.in',STATUS='old')
+        DO I=NKO,1,-1
+          READ(12,*) NUO(I),WK(I)
+          IF(I.LE.NKO-2) WK(I+1)=0.5D0*(NUO(I+2)-NUO(I))
+        ENDDO
+        WK(1)=0.5D0*(NUO(2)-NUO(1))
+        WK(NKO)=0.5D0*(NUO(NKO)-NUO(NKO-1))
+        CLOSE(UNIT=12)
+C     if NKO is negative, use logarithmically spaced frequencies:
+      ELSE
+        NKO=ABS(NKO)
+        READ(5,*) NUO1,NUO2
+        NUO1=LOG(NUO1)
+        NUO2=LOG(NUO2)
+        DNUO=(NUO2-NUO1)/DBLE(NKO)
+        DO I=1,NKO
+          NUO(I)=EXP(NUO1+DNUO*(DBLE(I)-0.5D0))
+          WK (I)=NUO(I)*DNUO
+        ENDDO
+      ENDIF
+C
+C     the observation angle:
+C
+      READ(5,*) MUO(1)
+      WT(1)=1.D0
+C
+C     basic parameters of a disk:
+C
+C     Input mass of hole in solar masses
+C     mass acretion rate (msun/year)
+C     a is the spin of the black hole in geometrized units:
+C
+      READ(5,*) MASS,MDOT,A
+C
+      MASS=MASS*MSUN
+      MDOT=MDOT*MSUN/365.25D0/24.D0/3600.D0
+C-    Eddington Luminosity:
+      LEDD=FOUR*PI*GN*MASS*MP*C/SIGMAT
+C-    Gravitational radius:
+      RG=GN*MASS/C/C
+C
+C     Marginally stable (direct) orbit radius, in units of mass
+C
+      Z1=ONE+(ONE-A*A)**THIRD*((ONE+A)**THIRD+(ONE-A)**THIRD)
+      Z2=SSQRT(TRES*A*A+Z1*Z1)
+      RMS=TRES+Z2-SSQRT((TRES-Z1)*(TRES+Z1+TWO*Z2))
+      X0=SSQRT(RMS)
+      X1=TWO*COS((ACOS(A)-PI)*THIRD)
+      X2=TWO*COS((ACOS(A)+PI)*THIRD)
+      X3=-TWO*COS(ACOS(A)*THIRD)
+C
+C-    Efficiency and accretion rate:
+      ENERGY=(RMS*RMS-TWO*RMS+A*SSQRT(RMS))/RMS/
+     %       SQRT(RMS*RMS-TRES*RMS+TWO*A*SSQRT(RMS))
+      ETA=ONE-ENERGY
+      LUM=ETA*MDOT*C*C
+C
+C-------------- Emission radius- grid of integration -------------
+C     ROUT is the outer boundary of the disk:
+C
+      READ(5,*) ROUT,TMIN,NRE,NRETYPE, GR
+      RCUT=ROUT
+      IF(NRETYPE.EQ.1) THEN
+C-  Logarithmic spacing:
+C-  Range of integration with respect to log(re/rms):
+        R1 = ZERO
+C-  Radiation for re > rms (stable disk only):
+        R2 = LOG( RCUT / RMS )
+C-  Abscissas and weights for re-integration:
+        CALL GAULEG(R1,R2,R,WR,NRE,MRE)
+        DO I = 1, NRE
+           RE(I) = RMS * EXP( R(I) )
+        END DO
+      ELSE IF(NRETYPE.EQ.2) THEN
+C   Inverse spacing:
+        R1 = ONE / RCUT
+        R2 = ONE / RMS
+C-  Radiation for re > rplus (from horizon):
+C       R2 = ONE / RPLUS
+C-  Abscissas and weights for re-integration:
+        CALL GAULEG(R1,R2,R,WR,NRE,MRE)
+        DO I=1,NRE
+           RE(I) = ONE / R(I)
+        END DO
+       ELSE IF(NRETYPE.EQ.3) THEN
+C   Third option is to read in the emission radii from a file:
+C   The radii should be in ascending order
+        OPEN(UNIT=13,FILE='emrad.in',STATUS='old')
+        READ(13,*) (RE(I),I=1,NRE)
+        iunin=11
+       ELSE
+        OPEN(UNIT=13,FILE='emrad.in',STATUS='old')
+        iunin=13
+      ENDIF
+C
+C-------------- Observation radius - grid of integration -----------
+C
+      NROTYPE=4
+      A1=-ROUT
+      A2=ROUT
+      B1=-ROUT
+      B2=ROUT
+      WA=(A2-A1)/DBLE(NRO)
+      WB=(B2-B1)/DBLE(NPHI)
+      SMALL = RMS*0.05
+      NS=MAX(INT(LOG((A2-A1)/SMALL/DBLE(NRO))/LOG(2.))+1,
+     &   INT(LOG((B2-B1)/SMALL/DBLE(NPHI))/LOG(2.))+1)
+c
+c ******************************************************************
+C--------------- Input atmosphere flux & polarization data ---------------
+C
+      DO 50 I = 1, NRE
+         IF(NRETYPE.GT.3) READ(13,*) RE(I),NKR
+C-  Calculate relativistic factors from Novikov & Thorne:
+         BBB=ONE+A/RE(I)**1.5D0
+         CCC=ONE-TRES/RE(I)+TWO*A/RE(I)**1.5D0
+         X=SSQRT(RE(I))
+         QQQ=(ONE+A/X**TRES)/SSQRT(ONE-TRES/X**TWO+TWO*A/X**TRES)/X*
+     %       (X-X0-1.5D0*A*LOG(X/X0)-TRES*(X1-A)**TWO/X1/
+     %       (X1-X2)/(X1-X3)*LOG((X-X1)/(X0-X1))-TRES*(X2-A)**TWO/
+     %       X2/(X2-X1)/(X2-X3)*LOG((X-X2)/(X0-X2))-TRES*(X3-A)
+     %       **TWO/X3/(X3-X1)/(X3-X2)*LOG((X-X3)/(X0-X3)))
+C-  Calculate flux and effective temperature:
+         FLUX=TRES*GN*MASS*MDOT*QQQ/8.D0/PI/RE(I)**TRES/
+     %        BBB/SSQRT(CCC)/RG**TRES
+         TEFF(I)=(FLUX/SIGMAB)**FOURTH
+         IF(TEFF(I).GT.TMIN) THEN
+C   Input the name of the file for the current radius:
+           IF(NRETYPE.LE.3) THEN
+              READ(13,*) RADFILE,NKR
+              OPEN(UNIT=11,FILE=RADFILE,STATUS='old')
+           END IF
+C-----------------------------------------------------------------------------
+C-  First, read the flux and polarization into an array
+C-  NOTE: the index for mu ranges from 0 to nw+1, while
+C-  the index for nu ranges from 1 to nk.
+C            
+           CALL GAULEG(ZERO,ONE,MUHUB,MUHUBWT,NW,NW)
+           MU(1)=0.D0
+           DO MM=2,NW+1
+              MU(MM)=MUHUB(MM-1)
+           END DO
+           MU(NW+2)=1.D0
+C  Hubeny has file ordered by increasing lambda, so reverse the reading:
+           DO 10 KK = NKR, 1, -1
+               READ(iunin,*) LAM, HNU
+               READ(iunin,*) (INUR(KK,MM),PR(KK,MM),MM=2,NW+1)
+C  Convert lambda (Angstroms) to frequency (Hertz)
+               NUR(KK)=C/LAM*1.D8
+C-  Linearly extrapolate to mu=0,1:
+               INUR(KK,1)=INUR(KK,3)+MU(3)*(INUR(KK,2)-INUR(KK,3))/
+     &                    (MU(3)-MU(2))
+               INUR(KK,NW+2)=INUR(KK,NW)-(ONE-MU(NW))*
+     &                       (INUR(KK,NW)-INUR(KK,NW+1))/
+     &                       (MU(NW+1)-MU(NW))
+               PR(KK,1)=PR(KK,3)+MU(3)*(PR(KK,2)-PR(KK,3))/(MU(3)-MU(2))
+               PR(KK,NW+2)=0.D0
+               DO MM=1,NW+2 
+                  IF(INUR(KK,MM).LT.0.D0) INUR(KK,MM) = 0.D0
+               ENDDO
+ 10        CONTINUE
+C Now, we need to interpolate from the NUR grid to the NU grid:
+           DO 20 K=1,NK
+              CALL LOCATE(NUR,NKR,NU(K),KK,MK)
+              DO MM=1,NW+2
+                 IF(KK.EQ.0) THEN
+                   TEX=LOG(HC/INUR(1,MM)*NUR(1)**3+1.D0)
+                   IF(TEX.GT.0.D0) THEN
+                     TEX=HK*NUR(1)/TEX
+                    ELSE
+                     TEX=HK/NUR(1)**2*INUR(1,MM)/HC
+                   ENDIF
+                   INU(I,K,MM)=FCTISP(NU(K),MU(MM),DELTA,TEX)
+                   P(I,K,MM)=0.D0
+                  ELSE IF (KK.EQ.NKR) THEN
+                   TEX=LOG(HC/INUR(NKR,MM)*NUR(NKR)**3+1.D0)
+                   IF(TEX.GT.0.D0) THEN
+                     TEX=HK*NUR(NKR)/TEX
+                    ELSE
+                     TEX=HK/NUR(NKR)**2*INUR(NKR,MM)/HC
+                   ENDIF
+                   INU(I,K,MM)=FCTISP(NU(K),MU(MM),DELTA,TEX)
+                   P(I,K,MM)=0.D0
+                  ELSE
+                   T=(NU(K)-NUR(KK))/(NUR(KK+1)-NUR(KK))
+                   INU(I,K,MM)=INUR(KK,MM)*(1.D0-T)+INUR(KK+1,MM)*T
+                   P(I,K,MM)=PR(KK,MM)*(1.D0-T)+PR(KK+1,MM)*T
+                 ENDIF
+              END DO
+ 20        CONTINUE
+c ******************************************************************
+          IF(NU(1).GT.NU(NK)) WRITE(6,*) 'Frequencies in wrong order'
+c ******************************************************************
+          IF(NRETYPE.LE.3) CLOSE(UNIT=iunin)
+        ENDIF
+   50 CONTINUE
+      IF(NRETYPE.GT.3) CLOSE(UNIT=iunin)
+C--------------------------------------------------------
+C-  Set the total flux to zero:
+      DO M=1,3
+         LTOT(M)=ZERO
+      END DO
+c ******************************************************************
+      II=1
+      A1T=A1
+      B1T=B1
+      A2T=A2
+      B2T=B2
+      WAT=WA
+      WBT=WB
+c ******************************************************************
+C     
+C-  Initialize integral over frequencies:
+      DO K=1,NKO
+         DO J=1,3
+            LSPEC(J,K) = ZERO
+         END DO
+      END DO
+      AMIN = 0.D0
+      BMIN = 0.D0
+      AMAX = 0.D0
+      BMAX = 0.D0
+C
+C-------------- Calculation of the spec. luminosity -----
+c ******************************************************************
+C Loop over nested grids:
+      DO 100 NG = 1,NS
+c ******************************************************************
+C-  Integration with respect to ro:
+         DO 90 I = 1, NRO
+c ******************************************************************
+            IF(NROTYPE.GT.1) ALPHA=A1T+(A2T-A1T)*(DBLE(I-1)+0.5D0)/
+     &                             DBLE(NRO)
+c ******************************************************************
+C-  Set phi-integral to 0:
+C-  Integration with respect to phi:
+            DO 70 J = 1, NPHI
+               IF(NROTYPE.EQ.1) THEN
+                 IF(NPHI.NE.1.D0) THEN 
+                   PHI=TWO*PI*DBLE(J-1)/DBLE(NPHI-1)
+                  ELSE
+                   PHI=0.D0
+                 ENDIF
+C Calculate impact parameters at infinity:
+                 ALPHA=RO(I)*SIN(PHI)
+                 BETA=-RO(I)*COS(PHI)
+                ELSE
+                 BETA=B1T+(B2T-B1T)*(DBLE(J-1)+0.5D0)/DBLE(NPHI)
+               ENDIF
+c ******************************************************************
+C Make a hole in the center, which will be filled in with finer grids:
+               IF(NG.LT.NS.AND.ABS(ALPHA).LT.A2T*0.5.AND.
+     &           ABS(BETA).LT.B2T*0.5)  GOTO 70
+c ******************************************************************
+C Full general relativistic calculation?
+               IF(GR.EQ.1) THEN
+C Calculate the angular momentum and Carter's constant of motion:
+               L=-ALPHA*SSQRT(ONE-MUO(II)*MUO(II))
+               L2=ALPHA*ALPHA*(ONE-MUO(II)*MUO(II))
+               Q2=BETA*BETA-(A*A-ALPHA*ALPHA)*MUO(II)*MUO(II)
+C-  Now calculate the emission radius:
+C   (If beta>0, there is a mu turning point; otherwise not)
+               IF(BETA.GT.ZERO) THEN
+                 TPM=.TRUE.
+                 SM=ONE
+                ELSE
+                 TPM=.FALSE.
+                 SM=-ONE
+               ENDIF
+C  The sign of the U integral starts out positive:
+               SU=ONE
+               IF(ABS(Q2).LT.1.D-16) Q2=ZERO
+C  Calculate the emission radius (UE=1/RE)
+               CALL GEOR3(ZERO,UE,MUO(II),ZERO,A,L,L2,Q2,TPM,TPR,SU,SM)
+C  ....otherwise Newtonian version of the calculation:
+               ELSE
+                 UE=ONE/SQRT(ALPHA*ALPHA+BETA*BETA/MUO(II)/MUO(II))
+               ENDIF
+C  Check to see if the radius is within range:
+               IF(UE.GT.ONE/ROUT.AND.UE.LE.ONE/RMS) THEN
+                 RE0=ONE/UE
+                 AMIN = MIN(AMIN,ALPHA)
+                 BMIN = MIN(BMIN,BETA)
+                 AMAX = MAX(AMAX,ALPHA)
+                 BMAX = MAX(BMAX,BETA)
+                ELSE
+                 IF(NROTYPE.EQ.3) THEN
+                   DO K=1,NKO
+                      WRITE(800+K,200) ALPHA,BETA,0
+                   ENDDO
+                 ENDIF
+                 GOTO 70
+               ENDIF
+C  Now, calculate the metric and relativisitic factors used in
+C  computing the redshift and angle of emission:
+               IF(GR.EQ.1) THEN
+               DEL=RE0*RE0+A*A-TWO*RE0
+               AEQ=(RE0*RE0+A*A)**TWO-A*A*DEL
+               EPSINU=AEQ*UE*UE/SSQRT(DEL)
+               ENU=SSQRT(DEL/AEQ)*RE0
+C  The rotational frequency, velocity, and Lorentz factor of the gas:
+               OMEGAG=ONE/(RE0*SSQRT(RE0)+A)
+               VG=(RE0*RE0-TWO*A*SSQRT(RE0)+A*A)/SSQRT(DEL)*OMEGAG
+               GAM=ONE/SSQRT(ONE-VG*VG)
+               OMEGA=TWO*A*RE0/AEQ
+C  Redshift of the emission:
+               GE=ENU/GAM/(ONE-OMEGAG*L)
+C  Angle of emission (cosine):
+               MUE=SSQRT(Q2)/RE0*ENU/GAM/(ONE-OMEGAG*L)
+C ....otherwise, compute Newtonian disk:
+               ELSE
+                 MUE=MUO(II)
+                 GE=ONE
+               ENDIF
+               CALL LOCATE(MU,NW+2,MUE,MM,NW+2)
+               U=(MUE-MU(MM))/(MU(MM+1)-MU(MM))
+C  Find where the emission radius lies on the grid of calculated radii:
+              IF(RE0.GT.MIN(RE(1),RE(NRE)).AND.
+     &          RE0.LT.MAX(RE(1),RE(NRE))) THEN
+                CALL LOCATE(RE,NRE,RE0,JJ,NRE)
+                V=(RE0-RE(JJ))/(RE(JJ+1)-RE(JJ))
+               ELSE
+                JJ = 0
+              ENDIF
+C-  Calculate the emission+rotation angle PSI:
+              IF(GR.EQ.1) THEN
+              PSIP=PANGLE(RE0,TPR,L,SSQRT(Q2),BETA,ALPHA,A,ONE,MUO(II))
+              PSIM=PANGLE(RE0,TPR,L,SSQRT(Q2),BETA,ALPHA,A,-ONE,MUO(II))
+              ELSE
+                PSIP=0.d0
+                PSIM=0.d0
+              ENDIF
+C-  Loop over observed frequency points:
+              DO 68 K=1,NKO
+C-  Calculation of the emitted frequency:
+                 NUE = NUO(K) / GE
+C-  Calculation of the emitted specific intensity Ispec and polarization:
+C   (I have a minimum temperature cutoff since my atmospheres don't converge
+C    for low temperatures)
+                 IF(JJ.GT.0.AND.TEFF(JJ).GT.TMIN) THEN
+                   IF(NUE.LT.MIN(NU(1),NU(NK)).OR.
+     &               NUE.GT.MAX(NU(1),NU(NK))) THEN
+C*************************************************************** 
+C First, check if the frequency is too low (NOTE: I'm assuming that NU(1)
+C contains the lowest frequency and NU(NK) the highest, so beware if sorted 
+C by increasing wavelength):
+                       IF(NUE.LT.NU(1)) THEN
+C Find the intensity at the lowest frequency:
+                       ISPEC=(ONE-V)*((ONE-U)*INU(JJ,1,MM)+
+     &                        U*INU(JJ,1,MM+1)) +
+     &                        V*((ONE-U)*INU(JJ+1,1,MM)+
+     &                        U*INU(JJ+1,1,MM+1))
+                       IF(ISPEC.GT.0.D0) THEN
+C Compute temperature of blackbody with same frequency and intensity:
+                        TEX=LOG(HC/ISPEC*NU(1)**3+1.D0)
+                        IF(TEX.GT.0.D0) THEN
+                          TEX=HK*NU(1)/TEX
+                         ELSE
+                          TEX=HK/NU(1)**2*ISPEC/HC
+C Extrapolate assuming a blackbody holds at lower frequencies:
+                        ENDIF
+                        ISPEC=FCTISP(NUE,MUE,DELTA,TEX)
+                      ENDIF
+C Assume the polarization is constant below NU(1):
+                      DELTA=(ONE-V)*((ONE-U)*P(JJ,1,MM)+
+     &                       U*P(JJ,1,MM+1)) +
+     &                       V*((ONE-U)*P(JJ+1,1,MM)+
+     &                       U*P(JJ+1,1,MM+1))
+                     ELSE IF(NUE.GT.NU(NK)) THEN
+C Find the intensity at the highest frequency:
+                    ISPEC=(ONE-V)*((ONE-U)*INU(JJ, NK,MM)+
+     &                    U*INU(JJ, NK,MM+1)) +
+     &                    V*((ONE-U)*INU(JJ+1,NK,MM)+
+     &                    U*INU(JJ+1,NK,MM+1))
+                    IF(ISPEC.GT.0.D0) THEN
+C Compute temperature of blackbody with same frequency and intensity:
+                      TEX=LOG(HC/ISPEC*NU(NK)**3+1.D0)
+                      IF(TEX.GT.0.D0) THEN
+                        TEX=HK*NU(NK)/TEX
+C Extrapolate assuming a blackbody holds at higher frequencies:
+                      ELSE
+                        TEX=HK/NU(NK)**2*ISPEC/HC
+                      ENDIF
+                      ISPEC=FCTISP(NUE,MUE,DELTA,TEX)
+                    ENDIF   
+C Assume the polarization is constant above NU(NK):
+                    DELTA=(ONE-V)*((ONE-U)*P(JJ, NK,MM)+
+     &                     U*P(JJ, NK,MM+1)) +
+     &                     V*((ONE-U)*P(JJ+1,NK,MM)+
+     &                     U*P(JJ+1,NK,MM+1))
+                  ENDIF
+C*************************************************************** 
+                 ELSE
+C-  Tri-linear interpolation in radius, frequency, and angle:
+                  CALL LOCATE(NU,NK,NUE,KK,MK)
+                  T=(NUE-NU(KK))/(NU(KK+1)-NU(KK))
+                  ISPEC=(ONE-V)*((ONE-U)*((ONE-T)*INU(JJ,KK,MM)+T*
+     %                    INU(JJ,KK+1,MM))+T*U*INU(JJ,KK+1,MM+1)+
+     %                    (ONE-T)*U*INU(JJ,KK,MM+1))+
+     %                    V*((ONE-U)*((ONE-T)*
+     %                    INU(JJ+1,KK,MM)+T*INU(JJ+1,KK+1,MM))+
+     %                    T*U*INU(JJ+1,KK+1,MM+1)+
+     %                    (ONE-T)*U*INU(JJ+1,KK,MM+1))
+                  DELTA=(ONE-V)*((ONE-U)*((ONE-T)*P(JJ,KK,MM)+T*
+     %                    P(JJ,KK+1,MM))+T*U*P(JJ,KK+1,MM+1)+
+     %                    (ONE-T)*U*P(JJ,KK,MM+1))+V*((ONE-U)*((ONE-T)*
+     %                    P(JJ+1,KK,MM)+T*P(JJ+1,KK+1,MM))+
+     %                    T*U*P(JJ+1,KK+1,MM+1)+
+     %                    (ONE-T)*U*P(JJ+1,KK,MM+1))
+                ENDIF
+              ELSE
+C- Just assume an isotropic blackbody and zero polarization for low Teff:
+                BBB=ONE+A/RE0**1.5D0
+                CCC=ONE-TRES/RE0+TWO*A/RE0**1.5D0
+                X=SSQRT(RE0)
+                QQQ=(ONE+A/X**TRES)/SSQRT(ONE-TRES/X**TWO+
+     %              TWO*A/X**TRES)/X*
+     %              (X-X0-1.5D0*A*LOG(X/X0)-TRES*(X1-A)**TWO/X1/
+     %              (X1-X2)/(X1-X3)*LOG((X-X1)/(X0-X1))-
+     %              TRES*(X2-A)**TWO/
+     %              X2/(X2-X1)/(X2-X3)*LOG((X-X2)/(X0-X2))-TRES*(X3-A)
+     %              **TWO/X3/(X3-X1)/(X3-X2)*LOG((X-X3)/(X0-X3)))
+C-  Calculate flux and effective temperature:
+                FLUX=TRES*GN*MASS*MDOT*QQQ/8.D0/PI/RE0**TRES/BBB/
+     %               SSQRT(CCC)/RG**TRES
+                TEFF0=(FLUX/SIGMAB)**FOURTH
+    IF(RE0.LT.RE(1)) THEN
+      ISPEC = 0.D0
+    ELSE
+                  ISPEC= FCTISP(NUE,MUE,DELTA,TEFF0)
+    ENDIF
+              ENDIF
+              IF(DELTA.GT.ZERO) PSI=PSIP
+              IF(DELTA.LT.ZERO) PSI=PSIM
+              SFAC(1)=ONE
+              SFAC(2)=DELTA*COS(TWO*PSI)
+              SFAC(3)=DELTA*SIN(TWO*PSI)
+C-  Calculation of the integrand with respect to phi:
+              IF(NROTYPE.EQ.1) THEN
+                INTG = FOUR*PI*RO(I)*(RO(I)+RCUT)*ISPEC*GE**3*
+     &                 WPHI*WRO(I)
+              ELSE
+c ******************************************************************
+                INTG = FOUR*PI*ISPEC*GE**3*WAT*WBT
+c ******************************************************************
+              ENDIF
+              DO M=1,3
+                LSPEC(M,K) = LSPEC(M,K) + INTG*SFAC(M)*RG*RG
+              END DO
+              IF(NROTYPE.EQ.3) THEN
+                WRITE(800+K,200) ALPHA,BETA,INTG
+              ENDIF
+ 68         CONTINUE
+ 70         CONTINUE
+ 90      CONTINUE
+c ******************************************************************
+         A1T=0.5*A1T
+         A2T=0.5*A2T
+         B1T=0.5*B1T
+         B2T=0.5*B2T
+         WAT=0.5*WAT
+         WBT=0.5*WBT
+  100 CONTINUE
+c ******************************************************************
+C---------------------------------------------------------
+C-------------- Output of the spec. luminosity -----------
+c ***************************************************************************
+c I think Eric's LSPEC(1,K) is 4*pi*d^2*F_nu, where F_nu is the flux (from
+c one side of the disk) that an observer would measure at the particular
+c viewing angle theta, and d is the distance.
+c ***************************************************************************
+      DO K=1,NKO
+         WRITE(6,200) NUO(K),LSPEC(1,K),LSPEC(2,K),LSPEC(3,K),
+     &                NMISS(K,II)
+         DO M=1,3
+            LTOT(M)=LTOT(M)+WT(II)*WK(K)*LSPEC(M,K)
+         END DO
+      END DO
+      CALL FLUSH(6)
+C---------------------------------------------------------
+ 200  FORMAT(10(1x,1pe13.5))
+ 201  FORMAT(1x,1pe13.5)
+      END
+
 C========================================================================
 C
 C

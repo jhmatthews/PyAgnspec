@@ -1,4 +1,6 @@
-      SUBROUTINE dispar3(XMSTAR,XMDOT,AA,ALPHA,ROUT,TMIN,DELTAR,NRE)
+      SUBROUTINE dispar3(TEFFL_ARRAY, QGRAL_ARRAY, DMTOL_ARRAY, 
+     *                   R_OUT_ARRAY, XMSTAR, XMDOT, AA, ALPHA, ROUT, 
+     *                   TMIN, DELTAR, NRE)
       IMPLICIT REAL*8 (A-H,O-Z)
       PARAMETER (VELC=2.997925E10)
       PARAMETER (GRCON = 6.668D-8)
@@ -9,10 +11,17 @@
       DIMENSION R(MRE)
 
 C     arrays which are passed back to python instead of writing to file
-      REAL*8 TEFFL_ARR(MRE), DMTOL_ARR(MRE), QGRAL_ARR(MRE)
+      REAL*8 XMSTAR, XMDOT, AA, ALPHA, ROUT, TMIN, DELTAR
+      INTEGER NRE
+      REAL*8 TEFFL_ARRAY(MRE), QGRAL_ARRAY(MRE)
+      REAL*8 DMTOL_ARRAY(MRE), R_OUT_ARRAY(MRE)
 
 C     tell f2py what to do with these arrays
-Cf2py intent(out) TEFFL_ARR, DMTOL_ARR, QGRAL_ARR
+Cf2py intent(in) XMSTAR, XMDOT, AA, ALPHA, ROUT, TMIN, DELTAR  
+Cf2py intent(in,out) NRE
+Cf2py intent(out) TEFFL_ARRAY, QGRAL_ARRAY, DMTOL_ARRAY, R_OUT_ARRAY
+
+
 C
 C ----------------------
 C Basic input parameters
@@ -106,9 +115,14 @@ C
          XMD=XMDOT*6.3029D25
          DMTOT=0.5*SIGMAR(ALPHA,XMD,TEFF,OMEGA,RELR,RELT,RELZ)
 C
-         TEFFL_ARR(I)=LOG10(TEFF)
-         QGRAL_ARR(I)=LOG10(QGRAV)
-         DMTOL_ARR(I)=LOG10(DMTOT)
+         TEFFL=LOG10(TEFF)
+         QGRAL=LOG10(QGRAV)
+         DMTOL=LOG10(DMTOT)
+         TEFFL_ARRAY(I) = TEFFL
+         QGRAL_ARRAY(I) = QGRAL
+         DMTOL_ARRAY(I) = DMTOL
+         R_OUT_ARRAY(I) = R(I)
+C          OUTPUT_ARRAYS(0,I) = R(I)
          WRITE(6,601) R(I),TEFFL,DMTOL,QGRAL,TEFF,DMTOT,QGRAV
       END DO
   601 FORMAT(4f10.3,f10.1,1p2e13.4)
